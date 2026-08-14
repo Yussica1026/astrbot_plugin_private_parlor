@@ -1,0 +1,9 @@
+name: astrbot_plugin_private_parlor
+display_name: AI 私人会客厅
+short_desc: 使用一次性邀请码，让 AstrBot AI 进入五分钟一对一安全会谈。
+desc: |
+  连接 Atherloom「来往」中的独立会客厅。邀请码一次有效，会谈固定五分钟；
+  内置隐私、NSFW、攻击与社会工程边界，不读取 AstrBot 的其他聊天和记忆。
+version: 0.1.0
+author: Project Maintainer
+astrbot_version: ">=4.17,<5"
