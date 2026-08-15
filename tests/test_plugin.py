@@ -8,17 +8,13 @@ from pathlib import Path
 
 class DummyFilter:
     @staticmethod
-    def llm_tool(**_kwargs):
-        return lambda function: function
-
+    def llm_tool(**_kwargs): return lambda function: function
     @staticmethod
-    def command(*_args, **_kwargs):
-        return lambda function: function
+    def command(*_args, **_kwargs): return lambda function: function
 
 
 class DummyStar:
-    def __init__(self, context=None):
-        self.context = context
+    def __init__(self, context=None): self.context = context
 
 
 astrbot = types.ModuleType("astrbot")
@@ -40,17 +36,22 @@ spec.loader.exec_module(module)
 class PluginTests(unittest.TestCase):
     def make_plugin(self):
         plugin = module.AtherloomParlorPlugin(None)
+        plugin.access_token = "test-token"
         calls = []
 
-        async def request(path, payload):
-            calls.append((path, payload))
+        async def request(path, payload, method="POST"):
+            calls.append((path, payload, method))
             if path.endswith("redeem"):
-                return {"room_token":"x"*32,"room_id":"room","ends_at":"2026-08-14T00:05:00Z","visibility":"summary"}
-            if path.endswith("status"):
-                return {"status":"active","remaining_seconds":240,"ends_at":"2026-08-14T00:05:00Z","visibility":"summary","end_reason":"","messages":[{"id":"m1","speaker":"host","content":"你好"}]}
-            if path.endswith("message"):
-                return {"id":"m2","remaining_seconds":230}
-            return {"ended":True}
+                return {"parlor_id": "room", "expires_at": 1776086700, "visibility": "summary"}
+            if path.endswith("/room"):
+                return {"status": "active", "self_client_id": "self", "expires_at": 1776086700, "visibility": "summary"}
+            if "messages?after=" in path:
+                return {"items": [{"id": "m1", "sender_id": "other", "body": "hello", "turn_no": 1}]}
+            if path.endswith("messages"):
+                return {"id": "m2", "remaining_seconds": 230}
+            if path.endswith("votes"):
+                return {"status": "open", "kind": payload["kind"], "choice": payload["choice"]}
+            return {"ended": True}
 
         plugin._request = request
         return plugin, calls
@@ -60,20 +61,22 @@ class PluginTests(unittest.TestCase):
         connected = asyncio.run(plugin._dispatch("connect", code="AT-test"))
         self.assertEqual(connected["duration_seconds"], 300)
         received = asyncio.run(plugin._dispatch("receive"))
-        self.assertEqual(received["new_host_messages"][0]["content"], "你好")
-        sent = asyncio.run(plugin._dispatch("send", content="很高兴见到你"))
+        self.assertEqual(received["new_messages"][0]["body"], "hello")
+        vote = asyncio.run(plugin._dispatch("vote", kind="topic", value="如何整理共同创作", choice="approve"))
+        self.assertEqual(vote["kind"], "topic")
+        sent = asyncio.run(plugin._dispatch("send", content="hello"))
         self.assertEqual(sent["id"], "m2")
-        asyncio.run(plugin._dispatch("close", summary="礼貌地聊了近况。"))
+        asyncio.run(plugin._dispatch("close", summary="ended"))
         self.assertEqual(plugin.room_token, "")
-        self.assertEqual([path for path, _ in calls], [
-            "/api/correspondence/invites/redeem", "/api/correspondence/parlors/status",
-            "/api/correspondence/parlors/message", "/api/correspondence/parlors/close",
+        self.assertEqual([path for path, _, _ in calls], [
+            "/v1/invites/redeem", "/v1/parlors/room", "/v1/parlors/room/messages?after=0",
+            "/v1/parlors/room/votes", "/v1/parlors/room/messages", "/v1/parlors/room/close",
         ])
 
     def test_cannot_send_without_invitation(self):
         plugin, _ = self.make_plugin()
-        with self.assertRaisesRegex(ValueError, "邀请码"):
-            asyncio.run(plugin._dispatch("send", content="你好"))
+        with self.assertRaisesRegex(ValueError, "尚未"):
+            asyncio.run(plugin._dispatch("send", content="hello"))
 
     def test_policy_names_privacy_nsfw_social_engineering_and_five_minutes(self):
         self.assertIn("五分钟", module.POLICY)
